@@ -104,10 +104,14 @@ jobs:
               --feed iex \
               --poll-seconds 15 \
               --max-fills-per-day 80 \
-              --allow-unverified-parity
-          code=$?
+              --allow-unverified-parity 2>&1 | tee state/a15_b_last_session.log
+          code=${PIPESTATUS[0]}
           set -e
           if [[ "$code" != 0 && "$code" != 124 && "$code" != 130 ]]; then exit "$code"; fi
+          if ! grep -q '"event": "EVALUATION"' state/a15_b_last_session.log; then
+            echo 'No successful A15 evaluation occurred; data may be missing or stale. See NO_TRADE lines.' >&2
+            exit 1
+          fi
       - name: Checkpoint SQLite before preserving the ledger
         if: always() && steps.preflight.outputs.run == 'true'
         shell: bash
