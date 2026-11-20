@@ -25,8 +25,9 @@ on:
         description: "Market-data entitlement: IEX is limited; SIP requires paid access"
         required: true
         type: choice
-        default: iex
+        default: both
         options:
+          - both
           - iex
           - sip
 
@@ -101,7 +102,7 @@ jobs:
           timeout --signal=INT --kill-after=25s "$((RUN_MINUTES*60))" \
             python -u run_realtime_bot_b.py --capital 1200 \
               --ledger state/a15_b_realtime_paper_1200.sqlite \
-              --feed "$FEED" --poll-seconds 15 "${flags[@]}"
+              --feed "$FEED" --poll-seconds 15 --quote-fallback "${flags[@]}"
           code=$?
           set -e
           if [[ "$code" != 0 && "$code" != 124 && "$code" != 130 ]]; then exit "$code"; fi
