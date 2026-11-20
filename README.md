@@ -2,7 +2,7 @@
 
 ## Status (2026-11-19)
 
-**Implemented and offline-tested, not running on a VPS, no authenticated live market data verified, Composer parity not yet established.** The runner *can* run without the existing A15 bot. It never makes brokerage trading/order API calls and cannot trade real money.
+**Implemented and offline-tested, not deployed or running, no authenticated live market data verified, Composer parity not yet established.** The runner *can* run without the existing A15 bot. It never makes brokerage trading/order API calls and cannot trade real money.
 
 This is **only Bot B**. No duplicate OG A15 process is included and the existing VPS/services are unchanged.
 
@@ -15,7 +15,7 @@ This is **only Bot B**. No duplicate OG A15 process is included and the existing
 5. **Immediately reevaluate the full 2,918-node A15 tree after that fill**, then fill the next required paper order, reevaluate, etc. Stop at target convergence or safety cap. Continue watching market signals; changing signals may cause **multiple entry, exit or rotation trades within one trading day**.
 6. Write the strategy SHA, paper fills, decisions, positions, equity and safety events to an append-only SQLite journal that persists across restarts.
 
-The original JSON has not been modified. Default capital **$1,200**, 5 bps simulated slippage, 0 commissions, $1/0.5%-of-equity minimum adjustment, and 80 maximum fills per trading day. The min-order threshold is **$6 at $1,200 equity** (0.5%), so smaller target weights are not filled.
+The original JSON has not been modified. GitHub stores its original contents as a compressed, base64-encoded blob `original_a15.json.gz.b64`; `restore_strategy.py` verifies SHA-256 and reconstructs the exact JSON before use. Do not treat the encoded source as a different strategy. Default capital **$1,200**, 5 bps simulated slippage, 0 commissions, $1/0.5%-of-equity minimum adjustment, and 80 maximum fills per trading day. The min-order threshold is **$6 at $1,200 equity** (0.5%), so smaller target weights are not filled.
 
 ## Critical limitations
 
@@ -41,7 +41,8 @@ It has no POST/PUT/DELETE requests and no Alpaca trading endpoint.
 ## Setup and run (macOS/Linux)
 
 ```bash
-cd A15_B_PAPER_ORDER_FILL
+cd a15-bot-b-paper
+python restore_strategy.py
 export APCA_API_KEY_ID='YOUR_ALPACA_MARKET_DATA_KEY_ID'
 export APCA_API_SECRET_KEY='YOUR_ALPACA_MARKET_DATA_SECRET'
 
@@ -91,7 +92,8 @@ Export daily historical **target allocation weights** from the OG Composer A15 f
 
 | File | Purpose |
 |---|---|
-| `original_a15.json` | Original unchanged 2,918-node source |
+| `original_a15.json.gz.b64` | Exact original 2,918-node source compressed for GitHub storage (restored with SHA-256 verification) |
+| `restore_strategy.py` | Deterministically restores `original_a15.json` before starting Bot B |
 | `a15_realtime_eval.py` | All-node research evaluator using completed history plus evolving partial daily bar |
 | `alpaca_market_data.py` | Authenticated **GET-only** Alpaca historical and current snapshot data |
 | `run_realtime_bot_b.py` | Continuous market polling, full reevaluations, and LOCAL paper order-on-fill event loop |
