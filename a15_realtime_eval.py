@@ -102,7 +102,10 @@ class RealtimeA15Evaluator:
             v=self.active_prices.get(sym)
         elif i>=0 and i<self.base_n:v=self.close[sym][i]
         else:v=None
-        if v is None or v<=0:raise IncompleteMarketData(f'Missing price for {sym} on index {i}')
+        if v is None or v<=0:
+            label=('current session '+str(self.session) if i==self.base_n else
+                   'historical index '+str(i))
+            raise IncompleteMarketData(f'Missing price for {sym} at {label}')
         return v
 
     def _returns(self,sym,i,window):
