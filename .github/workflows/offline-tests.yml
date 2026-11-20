@@ -1,0 +1,20 @@
+name: Bot B offline tests (no orders)
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reconstruct original JSON and verify SHA256
+        run: python restore_strategy.py
+      - name: Run synthetic market-data unit tests
+        run: python -m unittest discover -s tests -v
