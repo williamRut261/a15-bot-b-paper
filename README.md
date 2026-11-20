@@ -2,7 +2,7 @@
 
 ## Status (2026-11-19)
 
-**Implemented and offline-tested, not deployed or running, no authenticated live market data verified, Composer parity not yet established.** The runner *can* run without the existing A15 bot. It never makes brokerage trading/order API calls and cannot trade real money.
+**Implemented and offline-tested. Automatic GitHub Action committed but gated until repository visibility is PUBLIC. No actual authenticated forward-market run has been verified; Composer parity remains unverified.** The runner *can* run without the existing A15 bot. It never makes brokerage trading/order API calls and cannot trade real money.
 
 This is **only Bot B**. No duplicate OG A15 process is included and the existing VPS/services are unchanged.
 
@@ -106,9 +106,9 @@ See the live feeds / rate limits / venue restrictions at [Alpaca Market Data API
 
 ## GitHub preparation / deferred deployment
 
-This repository is **source control only**. The included GitHub Actions workflow runs offline tests; it **does not start a paper trader** and contains no VPS deployment action.
+GitHub Actions now includes offline CI, optional manual paper sessions, and an automatic scheduled paper session (`.github/workflows/automatic-paper.yml`). None of these deploys a VPS service or makes a brokerage order.
 
-**Intended destination: a new PRIVATE GitHub repository.** The original `original_a15.json` is a proprietary trading strategy and must not be pushed to a public repository. Never commit Alpaca keys or the local SQLite ledger. `.gitignore` excludes `.env*`, paper databases, logs, and local caches. Keep credentials in the eventual VPS secret environment, not GitHub code.
+**Repository currently remains PRIVATE.** To enable free standard GitHub-hosted runner minutes, the owner must intentionally change it to PUBLIC. This publishes the COMPLETE original A15 strategy (stored as a reversible compressed base64 blob), code, workflow logs and possibly saved paper-trading artifacts. Do not change visibility unless that disclosure is acceptable. Never commit Alpaca keys or the local SQLite ledger. `.gitignore` excludes `.env*`, paper databases, logs, and local caches. Keep credentials in the eventual VPS secret environment, not GitHub code.
 
 The default paper starting balance is now **$1,200**. Paper account funding occurs only when a *new* ledger is created. Existing ledgers are persistent, and mixing accounts is blocked. If you intentionally want a new $1,200 experiment, select a fresh `--ledger` path. Fractional shares are simulated and broker-specific minimums are **not** validated.
 
@@ -122,3 +122,18 @@ The optional `.github/workflows/paper-session.yml` allows a **manually triggered
 To enable this manual workflow, set the two read-only Alpaca market-data credentials as **repository Actions secrets** `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`. Then go to **Actions → A15 Bot B manual paper forward session → Run workflow**. Choose `observe` for inspection or `paper` for local simulated order fills. The paper mode persists its SQLite ledger as a private Actions artifact for up to 60 days. Keep only one active session; use the separate original A15 bot unchanged.
 
 Each session consumes GitHub-hosted runner compute. Repeating sessions all day every day may exceed the monthly included allocation. A 15-second evaluation interval is active only while the workflow job is running. Longer-lived continuous paper trading belongs on a properly configured VPS with persistent storage, not GitHub Actions. **The workflow is not automatically started by committing it.**
+
+## Automatic GitHub-hosted paper sessions (requires PUBLIC repository)
+
+The owner opted to permit publicly exposing the original A15 strategy and using GitHub-hosted public-repository compute. Workflow: `.github/workflows/automatic-paper.yml`.
+
+- Starts **weekdays at approximately 9:36 AM and 12:54 PM America/New_York**, using timezone-aware cron. The first job ends by 12:52 PM ET and the second by 3:55 PM ET.
+- The two segments avoid GitHub's 6-hour/job limit. There will be at least a short handoff gap, and **GitHub scheduled executions can be delayed, dropped, or otherwise unavailable**. This is NOT a guaranteed continuous service. It does not run outside regular US trading hours.
+- Each active segment polls the market data feed about every **15 seconds**, independently evaluates the original A15 tree using the unverified research evaluator and recalculates after every **simulated LOCAL fill**; multiple paper trades per session are permitted.
+- Virtual initial capital is **$1,200**; the ledger is restored from the most recent available private/public-repo Actions artifact before each run and re-uploaded at the end. Artifacts are retained up to **60 days**, can expire, and are **not** a durable database. Download/back up the ledger periodically. If the saved ledger cannot be restored, the bot may start a new $1,200 ledger; audit the first evaluation for continuity before interpreting returns.
+- Uses the limited `iex` feed. Missing/incomplete/stale quotes produce `NO_TRADE` and prevent simulated orders; a workflow being green does NOT certify that real-time data were complete or that trades happened.
+- Uses **read-only market-data GET calls**, **no actual Alpaca order API requests** and no production A15 service modifications. The strategy evaluator is **not verified Composer-equivalent**.
+- **Hard gate:** automatically scheduled runs only execute when GitHub reports the repository as **public**. When private, the job is skipped to protect the monthly metered allowance. Changing repository visibility is a user-controlled GitHub setting, not performed by the workflow.
+- Review repository security/settings before making public, since public readers can copy the original A15 JSON and view Actions logs and artifacts. Never publish market-data secrets.
+
+The original manual paper-session workflow remains available for debugging and does not need to be used each trading day.
