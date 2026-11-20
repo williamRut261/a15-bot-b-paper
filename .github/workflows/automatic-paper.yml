@@ -37,6 +37,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SCHEDULE_CRON: ${{ github.event.schedule }}
       TZ: America/New_York
+      A15_B_FEED: ${{ vars.A15_B_FEED || 'iex' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,6 +69,11 @@ jobs:
               o.write(f"seconds={max(0,remaining)}\n")
           print(f"NY now={now.isoformat()} segment ends={end.isoformat()}, run={valid}, seconds={max(0,remaining)}")
           PY
+      - name: Report scheduled start delayed beyond the market window
+        if: steps.preflight.outputs.run != 'true' && github.event_name == 'schedule'
+        run: |
+          echo "::error::GitHub scheduled start was delayed until after its trading window. No paper evaluation or orders were executed."
+          exit 1
       - name: Restore and verify original strategy; run offline unit tests
         if: steps.preflight.outputs.run == 'true'
         run: |
@@ -107,9 +113,11 @@ jobs:
             python -u run_realtime_bot_b.py \
               --capital 1200 \
               --ledger state/a15_b_realtime_paper_1200.sqlite \
-              --feed iex \
+              --feed "$A15_B_FEED" \
               --poll-seconds 15 \
+              --max-staleness-seconds 120 \
               --max-fills-per-day 80 \
+              --quote-fallback \
               --allow-unverified-parity 2>&1 | tee state/a15_b_last_session.log
           code=${PIPESTATUS[0]}
           set -e
