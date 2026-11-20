@@ -11,7 +11,7 @@ This is **only Bot B**. No duplicate OG A15 process is included and the existing
 1. At start of each US trading session, download **completed historical daily bars** for every symbol referenced in `original_a15.json` (57 allocation symbols plus 15 condition-only tickers, 72 total).
 2. Every 15 seconds during US regular hours (configurable), fetch read-only, current-session market snapshots from Alpaca IEX or consolidated SIP.
 3. Evaluate the **entire unchanged, 2,918-node A15 JSON** using the current observed price as a **partial, in-progress daily bar** for RSI, momentum, SMA, sub-strategy rank, etc. No future daily bar values.
-4. Compare A15 target allocations to the locally simulated virtual holdings. If sufficiently different, simulate one fill at current mark +/- configured slippage.
+4. Compare A15 target allocations to the locally simulated virtual holdings. If sufficiently different, simulate one fill at the observed price +/- configured slippage. In the optional IEX quote-fallback research mode, the observed price may be a fresh, spread-limited bid/ask midpoint rather than an executed trade.
 5. **Immediately reevaluate the full 2,918-node A15 tree after that fill**, then fill the next required paper order, reevaluate, etc. Stop at target convergence or safety cap. Continue watching market signals; changing signals may cause **multiple entry, exit or rotation trades within one trading day**.
 6. Write the strategy SHA, paper fills, decisions, positions, equity and safety events to an append-only SQLite journal that persists across restarts.
 
@@ -22,7 +22,7 @@ The original JSON has not been modified. GitHub stores its original contents as 
 - **Not Composer parity-verified**: The included `a15_realtime_eval.py` evaluates all node *types*, all filters, every conditional and sub-strategy with independently implemented definitions. **Complex historical sub-strategy rank** is computed from a synthetic daily mark-to-market portfolio based on previous-day weights; this is a plausible implementation, not a verified duplicate of Composer's internal metric. Indicator warm-up, RSI implementation, corporate-action handling and rank ties can also differ from Composer. To trade local *paper* orders using this independent replica, explicitly pass `--allow-unverified-parity`. For signal inspection only, use `--observe-only`.
 - **Local paper simulator**: virtual fills are immediate and based on the latest read price +/- slippage. These are **not Alpaca paper-account fills**, exchange fills or guaranteed executable prices. There is no broker order endpoint and no account API dependency. No real money is used.
 - **Real-time means near-real-time polling** at configured interval, not tick-by-tick streaming. Order-fill recalculations happen immediately within the simulation event loop.
-- **Market-data access is required** to start live-forward monitoring. Alpaca Basic provides only IEX venue data, not all consolidated US trades; SIP entitlement may be necessary for many A15 assets. Missing/unreliable data or insufficient history causes a fail-closed **NO_TRADE** log, never silent substitution of yesterday's last quote. The live data API has not been authenticated/tested in this environment.
+- **Market-data access is required** to start live-forward monitoring. Alpaca Basic provides only IEX venue data, not all consolidated US trades; SIP entitlement may be necessary for many A15 assets. Missing/unreliable data or insufficient history causes a fail-closed **NO_TRADE** log, never silent substitution of yesterday's last quote. Optional `--quote-fallback` uses ONLY same-session IEX bid/ask midpoint prices with <=1% spread and <=120-second quote age, if a trade print is missing or older than one minute. Such quotes are not executable fills and differ from Composer closing prices. This fallback does not guarantee full A15 quote coverage.
 - **Daily bar indicators with a partial intraday bar are an experimental reinterpretation of A15**, not exactly the scheduled daily Composer strategy. This creates more opportunities to trade and also more opportunities for whipsaws/fees.
 - **No holiday calendar in the local runtime**. It uses weekday/NY clock window and then requires current-session market trades. It will fail closed on a market holiday.
 - **No running deployment**: Process starts only when you run it on your own machine or server.
@@ -137,3 +137,15 @@ The owner opted to permit publicly exposing the original A15 strategy and using 
 - Review repository security/settings before making public, since public readers can copy the original A15 JSON and view Actions logs and artifacts. Never publish market-data secrets.
 
 The original manual paper-session workflow remains available for debugging and does not need to be used each trading day.
+
+## November 20, 2026: Diagnosed no-trade failure and data-coverage fix
+
+The first live GitHub-hosted run loaded 996 completed historical SPY bars but logged 589 consecutive `IncompleteMarketData: Missing price for GDXU on index 996` errors. **Index 996 is the changing CURRENT intraday daily bar**, not a prior historical bar. The feed was `iex`, and no current-session eligible GDXU last trade appeared in the prices passed to the A15 evaluator. The bot executed **zero paper fills**. Another scheduled GitHub job arrived after market close, skipped every trading step, and nevertheless showed a green check.
+
+New safeguards:
+- Scheduled public workflow enables `--quote-fallback`, using only current-session IEX best bid/ask with tight spread/age conditions when current-session trade prints are missing or stale. This is a *research-price approximation*, not a verified Composer or execution-equivalent trade price.
+- `SNAPSHOT_COVERAGE` log entries identify priced/missing symbols (including GDXU). After 20 consecutive `NO_TRADE` errors (~5 minutes), `FATAL_DATA_COVERAGE` terminates the process with an error; no more multiple-hour silent nontrading sessions.
+- The workflow now marks late scheduled starts as failures rather than presenting successful skips as successful paper trading.
+- The `A15_B_FEED` **repository variable** defaults to `iex`. If the user has **paid real-time SIP entitlement**, set it to `sip` under repository Settings -> Secrets and variables -> Actions -> Variables. With free Basic IEX, the required live quote coverage may still be insufficient. **Do not substitute delayed SIP data and claim it is real-time.**
+
+These changes are code-level safeguards, not verified Alpaca live-data remediation. A green CI test only verifies synthetic/offline behavior. The first future in-market paper job and its logs must be inspected before reporting any trades. The original VPS live A15 is unchanged.
