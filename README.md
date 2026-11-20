@@ -113,3 +113,12 @@ This repository is **source control only**. The included GitHub Actions workflow
 The default paper starting balance is now **$1,200**. Paper account funding occurs only when a *new* ledger is created. Existing ledgers are persistent, and mixing accounts is blocked. If you intentionally want a new $1,200 experiment, select a fresh `--ledger` path. Fractional shares are simulated and broker-specific minimums are **not** validated.
 
 For later VPS deployment, refer to `DEPLOY_LATER.md`. GitHub CI verifies the code on push without access to live market data or the user's credentials.
+
+
+## GitHub Actions short forward sessions (manual, not continuously running)
+
+The optional `.github/workflows/paper-session.yml` allows a **manually triggered** 15/30/60/120 minute session during US regular market hours. It does NOT run on a schedule, does NOT deploy to the VPS, and does NOT make any trading/order API requests. A free IEX data feed may not have fresh trades for every original-A15 signal symbol; in that case it fails closed.
+
+To enable this manual workflow, set the two read-only Alpaca market-data credentials as **repository Actions secrets** `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`. Then go to **Actions → A15 Bot B manual paper forward session → Run workflow**. Choose `observe` for inspection or `paper` for local simulated order fills. The paper mode persists its SQLite ledger as a private Actions artifact for up to 60 days. Keep only one active session; use the separate original A15 bot unchanged.
+
+Each session consumes GitHub-hosted runner compute. Repeating sessions all day every day may exceed the monthly included allocation. A 15-second evaluation interval is active only while the workflow job is running. Longer-lived continuous paper trading belongs on a properly configured VPS with persistent storage, not GitHub Actions. **The workflow is not automatically started by committing it.**
