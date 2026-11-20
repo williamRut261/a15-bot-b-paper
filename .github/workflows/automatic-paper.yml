@@ -4,9 +4,15 @@ name: A15 Bot B automatic intraday paper sessions
 # This is GitHub-hosted only; NO VPS / real brokerage orders.
 on:
   schedule:
+    # Primary and five-minute backup attempts (weekday New York time).
+    # GitHub's schedule is best effort, not an exact-time guarantee.
     - cron: '36 9 * * 1-5'
       timezone: America/New_York
+    - cron: '41 9 * * 1-5'
+      timezone: America/New_York
     - cron: '54 12 * * 1-5'
+      timezone: America/New_York
+    - cron: '59 12 * * 1-5'
       timezone: America/New_York
   workflow_dispatch:
 
@@ -46,9 +52,9 @@ jobs:
           now=datetime.datetime.now(ZoneInfo("America/New_York"))
           cron=os.environ.get("SCHEDULE_CRON","")
           # Morning and afternoon; manual runs end at whichever segment boundary follows.
-          if cron.startswith("36 9"):
+          if cron.startswith(("36 9", "41 9")):
               cutoff=(12,52)
-          elif cron.startswith("54 12"):
+          elif cron.startswith(("54 12", "59 12")):
               cutoff=(15,55)
           elif (now.hour,now.minute)<(12,52):
               cutoff=(12,52)
