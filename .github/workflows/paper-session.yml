@@ -1,0 +1,115 @@
+name: A15 Bot B manual paper forward session
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Observe signals only, or simulate LOCAL paper fills (Composer parity unverified)"
+        required: true
+        type: choice
+        default: observe
+        options:
+          - observe
+          - paper
+      minutes:
+        description: "Session length in market hours (GitHub Pro compute is metered)"
+        required: true
+        type: choice
+        default: '30'
+        options:
+          - '15'
+          - '30'
+          - '60'
+          - '120'
+      feed:
+        description: "Market-data entitlement: IEX is limited; SIP requires paid access"
+        required: true
+        type: choice
+        default: iex
+        options:
+          - iex
+          - sip
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: a15-b-manual-paper-session
+  cancel-in-progress: false
+
+jobs:
+  paper-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 145
+    env:
+      APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+      APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+      FEED: ${{ inputs.feed }}
+      MODE: ${{ inputs.mode }}
+      RUN_MINUTES: ${{ inputs.minutes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact A15 strategy tree
+        run: python restore_strategy.py
+      - name: Unit tests (no market API / no orders)
+        run: python -m unittest discover -s tests -q
+      - name: Refuse missing credentials or closed market
+        shell: bash
+        run: |
+          if [[ -z "$APCA_API_KEY_ID" || -z "$APCA_API_SECRET_KEY" ]]; then
+            echo 'Configure APCA_API_KEY_ID and APCA_API_SECRET_KEY as repository Actions secrets.' >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import datetime
+          from zoneinfo import ZoneInfo
+          now = datetime.datetime.now(ZoneInfo('America/New_York'))
+          # Only US standard trading weekdays; market holiday cases fail closed on data.
+          if now.weekday() > 4 or not ('09:35' <= now.strftime('%H:%M') <= '15:55'):
+              raise SystemExit('Market session is closed; refusing to burn runner minutes while idle.')
+          print('Market-time precheck accepted:', now.isoformat())
+          PY
+      - name: Restore latest paper ledger (only for paper mode)
+        if: inputs.mode == 'paper'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          # Previous ledger is stored as a private GitHub Actions artifact; not committed to Git.
+          run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.name == "a15-b-paper-ledger" and .expired == false)] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+          if [[ -n "$run_id" ]]; then
+            gh run download "$run_id" -n a15-b-paper-ledger -D state
+          fi
+          ls -l state/
+      - name: Run local simulated paper orders or signal-only observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          flags=(--observe-only)
+          if [[ "$MODE" == paper ]]; then flags=(--allow-unverified-parity); fi
+          # All paper fills are local database events; NO broker order API requests.
+          # timeout exits 124 when the bounded forward-test session completes normally.
+          set +e
+          timeout --signal=INT --kill-after=25s "$((RUN_MINUTES*60))" \
+            python -u run_realtime_bot_b.py --capital 1200 \
+              --ledger state/a15_b_realtime_paper_1200.sqlite \
+              --feed "$FEED" --poll-seconds 15 "${flags[@]}"
+          code=$?
+          set -e
+          if [[ "$code" != 0 && "$code" != 124 && "$code" != 130 ]]; then exit "$code"; fi
+      - name: Persist simulated portfolio and fills privately
+        if: always() && inputs.mode == 'paper'
+        uses: actions/upload-artifact@v4
+        with:
+          name: a15-b-paper-ledger
+          path: state/a15_b_realtime_paper_1200.sqlite
+          if-no-files-found: ignore
+          retention-days: 60
