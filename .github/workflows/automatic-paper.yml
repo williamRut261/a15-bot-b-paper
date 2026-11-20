@@ -37,7 +37,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SCHEDULE_CRON: ${{ github.event.schedule }}
       TZ: America/New_York
-      A15_B_FEED: ${{ vars.A15_B_FEED || 'iex' }}
+      A15_B_FEED: both  # SIP if entitled, IEX per-symbol fallback; paper only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
