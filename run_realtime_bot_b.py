@@ -54,9 +54,9 @@ def arg_parser():
     p.add_argument('--strategy',default=str(Path(__file__).with_name('original_a15.json')))
     p.add_argument('--ledger',default='a15_b_realtime_paper_1200.sqlite')
     p.add_argument('--capital',default='1200')
-    p.add_argument('--feed',choices=['iex','sip'],default='iex',help='IEX free limited venue; SIP consolidated when entitled')
+    p.add_argument('--feed',choices=['iex','sip','both'],default='both',help='both: SIP first when entitled, IEX per-symbol fallback')
     p.add_argument('--quote-fallback',action='store_true',
-                   help='Research only: use fresh IEX bid/ask midpoint when latest trade is missing or >60s old')
+                   help='Research only: use fresh IEX/SIP bid/ask midpoint when latest trade is missing or >60s old')
     p.add_argument('--poll-seconds',type=int,default=15)
     p.add_argument('--max-staleness-seconds',type=int,default=600)
     p.add_argument('--max-fills-per-day',type=int,default=80)
@@ -119,7 +119,8 @@ def main(argv=None):
                 evaluator=RealtimeA15Evaluator(strategy,history)
                 session=local_day
                 print(json.dumps({'event':'history_loaded','session':local_day,
-                       'days':len(evaluator.dates),'symbols':len(syms)}),flush=True)
+                       'days':len(evaluator.dates),'symbols':len(syms),
+                       'history_sources':feed.last_history_sources}),flush=True)
                 if bot is None:
                     bot=RealtimePaperBot(a.strategy,a.ledger,
                         lambda when,state,original:evaluator.evaluate(),
@@ -130,10 +131,15 @@ def main(argv=None):
                         min_order_weight_bps=a.min_order_weight_bps)
             prices,ages,times=feed.snapshot(syms,local_day)
             if consecutive_failures in (0,9,19):
+                sources={}
+                for source in feed.last_sources.values():
+                    sources[source]=sources.get(source,0)+1
                 print(json.dumps({'event':'SNAPSHOT_COVERAGE',
                     'session':local_day,'priced':len(prices),'requested':len(syms),
                     'missing':sorted(set(syms)-set(prices)),
                     'critical_missing':[s for s in ('GDXU','BIL','QQQ','UVXY') if s in syms and s not in prices],
+                    'source_counts':sources,'feed_status':feed.last_feed_status,
+                    'critical_sources':{s:feed.last_sources.get(s,'MISSING') for s in ('GDXU','BIL','QQQ','UVXY') if s in syms},
                     'quote_fallback':a.quote_fallback}),flush=True)
             # Snapshot messages can contain yesterday's trade: never ffill it.
             # Do not silently use a prior close for missing live symbols.
@@ -172,7 +178,7 @@ def main(argv=None):
             if consecutive_failures>=20:
                 print(json.dumps({'event':'FATAL_DATA_COVERAGE',
                     'consecutive_failures':consecutive_failures,
-                    'message':'No valid A15 evaluation for about five minutes. Check SNAPSHOT_COVERAGE; IEX may lack current trades/quotes for essential assets. Real-time SIP or another consolidated provider may be required. No paper orders were invented.'}),file=sys.stderr,flush=True)
+                    'message':'No valid A15 evaluation for about five minutes. Check SNAPSHOT_COVERAGE and SIP entitlement; missing current-session quotes cannot be invented. No paper orders were placed.'}),file=sys.stderr,flush=True)
                 return 2
         if a.once:break
         time.sleep(a.poll_seconds)
