@@ -55,6 +55,8 @@ def arg_parser():
     p.add_argument('--ledger',default='a15_b_realtime_paper_1200.sqlite')
     p.add_argument('--capital',default='1200')
     p.add_argument('--feed',choices=['iex','sip'],default='iex',help='IEX free limited venue; SIP consolidated when entitled')
+    p.add_argument('--quote-fallback',action='store_true',
+                   help='Research only: use fresh IEX bid/ask midpoint when latest trade is missing or >60s old')
     p.add_argument('--poll-seconds',type=int,default=15)
     p.add_argument('--max-staleness-seconds',type=int,default=600)
     p.add_argument('--max-fills-per-day',type=int,default=80)
@@ -93,8 +95,9 @@ def main(argv=None):
         ensure_strategy()
     strategy=json.loads(Path(a.strategy).read_text())
     syms=collect_symbols(strategy)
-    feed=AlpacaMarketData(feed=a.feed)
+    feed=AlpacaMarketData(feed=a.feed,quote_fallback=a.quote_fallback)
     bot=None; evaluator=None; session=None
+    consecutive_failures=0
     stop=False
     def stop_requested(*_):
         nonlocal stop
@@ -103,7 +106,8 @@ def main(argv=None):
     signal.signal(signal.SIGTERM,stop_requested)
     print(json.dumps({'status':'STARTED','mode':'OBSERVE_ONLY' if a.observe_only else 'LOCAL_PAPER',
          'network_access':'market-data-GET-only','live_orders_allowed':False,
-         'strategy':strategy['name'],'data_feed':a.feed,'symbols_needed':len(syms)}),flush=True)
+         'strategy':strategy['name'],'data_feed':a.feed,'symbols_needed':len(syms),
+         'quote_fallback':a.quote_fallback,'research_only':True}),flush=True)
     while not stop:
         now=dt.datetime.now(NY)
         local_day=now.date().isoformat()
@@ -125,6 +129,12 @@ def main(argv=None):
                         min_order_dollars=a.min_order_dollars,
                         min_order_weight_bps=a.min_order_weight_bps)
             prices,ages,times=feed.snapshot(syms,local_day)
+            if consecutive_failures in (0,9,19):
+                print(json.dumps({'event':'SNAPSHOT_COVERAGE',
+                    'session':local_day,'priced':len(prices),'requested':len(syms),
+                    'missing':sorted(set(syms)-set(prices)),
+                    'critical_missing':[s for s in ('GDXU','BIL','QQQ','UVXY') if s in syms and s not in prices],
+                    'quote_fallback':a.quote_fallback}),flush=True)
             # Snapshot messages can contain yesterday's trade: never ffill it.
             # Do not silently use a prior close for missing live symbols.
             # The evaluator raises if a missing symbol is actually needed.
@@ -153,9 +163,17 @@ def main(argv=None):
                   'weights':{k:round(v,8) for k,v in allocation.items()},
                   'freshness_max_s':round(max(ages[s] for s in required),1),
                   'paper_fills':new_fills,**format_state(bot)}),flush=True)
+            consecutive_failures=0
         except Exception as exc:
+            consecutive_failures+=1
             print(json.dumps({'event':'NO_TRADE','time':dt.datetime.now(dt.timezone.utc).isoformat(),
+               'consecutive_failures':consecutive_failures,
                'error':f'{type(exc).__name__}: {str(exc)[:400]}'}),file=sys.stderr,flush=True)
+            if consecutive_failures>=20:
+                print(json.dumps({'event':'FATAL_DATA_COVERAGE',
+                    'consecutive_failures':consecutive_failures,
+                    'message':'No valid A15 evaluation for about five minutes. Check SNAPSHOT_COVERAGE; IEX may lack current trades/quotes for essential assets. Real-time SIP or another consolidated provider may be required. No paper orders were invented.'}),file=sys.stderr,flush=True)
+                return 2
         if a.once:break
         time.sleep(a.poll_seconds)
     return 0
