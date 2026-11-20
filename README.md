@@ -131,7 +131,7 @@ The owner opted to permit publicly exposing the original A15 strategy and using 
 - The two segments avoid GitHub's 6-hour/job limit. There will be at least a short handoff gap, and **GitHub scheduled executions can be delayed, dropped, or otherwise unavailable**. This is NOT a guaranteed continuous service. It does not run outside regular US trading hours.
 - Each active segment polls the market data feed about every **15 seconds**, independently evaluates the original A15 tree using the unverified research evaluator and recalculates after every **simulated LOCAL fill**; multiple paper trades per session are permitted.
 - Virtual initial capital is **$1,200**; the ledger is restored from the most recent available private/public-repo Actions artifact before each run and re-uploaded at the end. Artifacts are retained up to **60 days**, can expire, and are **not** a durable database. Download/back up the ledger periodically. If the saved ledger cannot be restored, the bot may start a new $1,200 ledger; audit the first evaluation for continuity before interpreting returns.
-- Uses the limited `iex` feed. Missing/incomplete/stale quotes produce `NO_TRADE` and prevent simulated orders; a workflow being green does NOT certify that real-time data were complete or that trades happened.
+- Uses `both` feed mode: request real-time SIP when the account is entitled, then IEX for missing symbols. SIP HTTP 403 entitlement denials cause a controlled IEX fallback; incomplete/stale quotes still produce `NO_TRADE`. A green workflow alone does NOT certify paper fills occurred.
 - Uses **read-only market-data GET calls**, **no actual Alpaca order API requests** and no production A15 service modifications. The strategy evaluator is **not verified Composer-equivalent**.
 - **Hard gate:** automatically scheduled runs only execute when GitHub reports the repository as **public**. When private, the job is skipped to protect the monthly metered allowance. Changing repository visibility is a user-controlled GitHub setting, not performed by the workflow.
 - Review repository security/settings before making public, since public readers can copy the original A15 JSON and view Actions logs and artifacts. Never publish market-data secrets.
@@ -146,6 +146,20 @@ New safeguards:
 - Scheduled public workflow enables `--quote-fallback`, using only current-session IEX best bid/ask with tight spread/age conditions when current-session trade prints are missing or stale. This is a *research-price approximation*, not a verified Composer or execution-equivalent trade price.
 - `SNAPSHOT_COVERAGE` log entries identify priced/missing symbols (including GDXU). After 20 consecutive `NO_TRADE` errors (~5 minutes), `FATAL_DATA_COVERAGE` terminates the process with an error; no more multiple-hour silent nontrading sessions.
 - The workflow now marks late scheduled starts as failures rather than presenting successful skips as successful paper trading.
-- The `A15_B_FEED` **repository variable** defaults to `iex`. If the user has **paid real-time SIP entitlement**, set it to `sip` under repository Settings -> Secrets and variables -> Actions -> Variables. With free Basic IEX, the required live quote coverage may still be insufficient. **Do not substitute delayed SIP data and claim it is real-time.**
+- The automatic workflow now explicitly uses `both` feed mode; it requests SIP and fills missing symbols from IEX. Alpaca real-time SIP requires suitable market-data entitlement. HTTP 403 falls back to IEX, but IEX may still lack sufficient coverage. **Do not substitute delayed SIP data and claim it is real-time.**
 
 These changes are code-level safeguards, not verified Alpaca live-data remediation. A green CI test only verifies synthetic/offline behavior. The first future in-market paper job and its logs must be inspected before reporting any trades. The original VPS live A15 is unchanged.
+
+
+## November 20, 2026: SIP plus IEX data mode
+
+Bot B now supports `--feed both` (the default) in the live runner, the automatic paper workflow, and the optional manual paper workflow. It does **not** subscribe the account to a paid feed automatically.
+
+- Historical completed daily bars: request SIP first, then use IEX to fill missing ticker/date entries. The log includes the historical source status and number of filled gaps. Such mixed-source history is an **experimental approximation** and is not Composer parity.
+- Current-session prices: request SIP first. For any symbols without a usable, fresh SIP print/quote, request the IEX snapshots for **only those missing tickers**. Each instrument's actual source (`sip:trade`, `sip:quote_midpoint`, `iex:trade`, or `iex:quote_midpoint`) is visible in `SNAPSHOT_COVERAGE` logs.
+- If live SIP returns HTTP 403, disable SIP live requests for that process (avoiding a repeated 403 every 15 seconds) and continue with IEX. If SIP returns a different error (including 429), do **not** hide the error by pretending IEX succeeded.
+- Quotes must be from the same market day, within 120 seconds, and bid/ask spreads no wider than 1%; otherwise the strategy refuses to use them. Quote midpoint is not an executable broker fill.
+- If missing required market data prevents a full A15 evaluation for 20 consecutive polls, fail the GitHub job instead of silently spending hours without any paper trading.
+- A *successful offline CI test* does not confirm that the user's Alpaca credentials are authorized for SIP or that GDXU prices will be present. Confirm source logs and actual `paper_fills` from the next active market session.
+
+**Paper-only:** the bot uses read-only Alpaca market-data GET APIs and virtual fills. It submits no orders to the user's live A15 accounts or Alpaca paper brokerage.
