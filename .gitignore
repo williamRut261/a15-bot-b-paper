@@ -1,0 +1,34 @@
+# Credentials — never commit secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+*secret*.json
+
+# Paper account ledgers and live logs (keep outside source control)
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+logs/
+state/
+
+# Python and workstation artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.DS_Store
+.idea/
+.vscode/
+
+# Local expanded source; compressed exact copy is versioned
+original_a15.json
